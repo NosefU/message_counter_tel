@@ -84,6 +84,19 @@ for user_id, values in raw_table_data.items():
     }
     raw_csv.append(row)
 
+total_messages = sum([value[0] for value in raw_table_data.values()])
+total_chars = sum([value[1] for value in raw_table_data.values()])
+total_avg_len = total_chars / total_messages
+total_row = {
+        '№': ' ',
+        'name': 'Total',
+        'avg_len': '{:6.3f}'.format(total_avg_len),
+        'messages': '{:4d}'.format(total_messages),
+        'symbols': '{:5d}'.format(total_chars)
+    }
+raw_csv.append(total_row)
+
+
 headers = list(raw_csv[0].keys())
 
 # replace unsupported chars
