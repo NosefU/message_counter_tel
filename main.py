@@ -2,10 +2,11 @@ import csv
 import json
 from collections import defaultdict
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import settings
 from general_functions import get_messages
+from table_generator import Table
 
 
 def zip_dict(dict1, dict2):
@@ -36,48 +37,91 @@ with open(settings.BACKUP_FILE, 'r', encoding='utf-8') as f:
 
 messages = get_messages(raw_backup, settings.CHAT_ID)
 
-# get the start of the today in ISO
-start_date = datetime.today()
+# get yesterday - start date and today - end date
+start_date = datetime.today() - timedelta(days=1)
 start_date = str(start_date.combine(start_date.date(), start_date.min.time()).isoformat())
 
+end_date = datetime.today()
+end_date = str(end_date.combine(end_date.date(), end_date.min.time()).isoformat())
+
+
+users = {}
 for message in messages:
-    if not message['type'] == 'message' or message['date'] >= start_date:
+    # filter messages
+    if not message['type'] == 'message' or not start_date <= message['date'] < end_date:
         continue
+    # count user messages and chars
     user_id = message['from_id']
     username = message['from']
     text = message['text']
+    message_counter[user_id] += 1
+    symbol_counter[user_id] += len(text)
 
-    message_counter[username] += 1
-    symbol_counter[username] += len(text)
+    # parse users
+    if user_id not in users:
+        users[user_id] = username
 
-avg_lengths = {}
+# count average length of user message
+raw_table_data = {}
 for user, stats in zip_dict(message_counter, symbol_counter).items():
     avg = round(stats[1]/stats[0], 3)
-    avg_lengths[user] = [stats[0], stats[1], avg]
+    raw_table_data[user] = [stats[0], stats[1], avg]
 
-avg_lengths = dict(sorted(avg_lengths.items(), key=lambda x: x[1], reverse=True))
+# sort table data for user messages count
+raw_table_data = dict(sorted(raw_table_data.items(), key=lambda x: x[1], reverse=True))
 
+# prepare data for csv
 raw_csv = []
 n = 0
-for name, values in avg_lengths.items():
+for user_id, values in raw_table_data.items():
     n += 1
     row = {
-        'N': n,
-        'name': str(name),
-        'avg_len': str(values[2]),
-        'messages': values[0],
-        'symbols': values[1]}
+        '№': n,
+        'name': users[user_id],
+        'avg_len': '{:6.3f}'.format(values[2]),
+        'messages': '{:4d}'.format(values[0]),
+        'symbols': '{:5d}'.format(values[1])
+    }
     raw_csv.append(row)
 
-headers = raw_csv[0].keys()
-with open('chat_stats.csv', 'w', newline='', encoding='cp1251') as out_file:
-    writer = csv.DictWriter(out_file, delimiter=';', dialect='excel', fieldnames=headers)
-    writer.writeheader()
-    for row in raw_csv:
-        row['name'] = replace_encoding(row['name'])
-    writer.writerows(raw_csv)
+total_messages = sum([value[0] for value in raw_table_data.values()])
+total_chars = sum([value[1] for value in raw_table_data.values()])
+total_avg_len = total_chars / total_messages
+total_row = {
+        '№': ' ',
+        'name': 'Total',
+        'avg_len': '{:6.3f}'.format(total_avg_len),
+        'messages': '{:4d}'.format(total_messages),
+        'symbols': '{:5d}'.format(total_chars)
+    }
+raw_csv.append(total_row)
 
-os.startfile('chat_stats.csv')
+
+headers = list(raw_csv[0].keys())
+
+# replace unsupported chars
+for row in raw_csv:
+    row['name'] = replace_encoding(row['name'], placeholder='�')
+
+# prepare data for picture table
+dataframe = [list(row.values()) for row in raw_csv]
+
+table = Table(headers=headers,
+              data=dataframe,
+              col_align=['center', 'left', 'center', 'center', 'center']
+              )
+# table.show()
+picture_path = table.save('table.png')
+print(picture_path)
+
+# with open('chat_stats.csv', 'w', newline='', encoding='cp1251') as out_file:
+#     writer = csv.DictWriter(out_file, delimiter=';', dialect='excel', fieldnames=headers)
+#     writer.writeheader()
+#     for row in raw_csv:
+#         row['name'] = replace_encoding(row['name'])
+#     writer.writerows(raw_csv)
+#
+# os.startfile('chat_stats.csv')
 
 # output_avg = f'{"username":^31} | {"avg_len":^10} | {"messages":^5} | {"symbols":^6}\n'
 # output_avg += '\n'.join([f'{str(elem[0]):<31} | {elem[1]:6.4f}' for elem in users_by_avg])
